@@ -2,3 +2,5 @@ requests
 pandas
 streamlit
 plotly
+openpyxl
+pyarrow

@@ -2,7 +2,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from scraper import load_all, load_robinhood_monthly, RBHD_DIR
+from scraper import load_all, load_robinhood_monthly, load_robinhood_from_uploads, RBHD_DIR
 
 st.set_page_config(
     page_title="OCC Weekly Options Volume",
@@ -39,7 +39,12 @@ date_range = st.sidebar.date_input("Date Range", value=(min_date, max_date),
 
 st.sidebar.divider()
 st.sidebar.header("Robinhood Market Share")
-st.sidebar.caption(f"Drop monthly/quarterly Excel files into:\n`{RBHD_DIR}`")
+uploaded_rbhd = st.sidebar.file_uploader(
+    "Upload Robinhood Excel files",
+    type="xlsx",
+    accept_multiple_files=True,
+    help="Monthly Metrics or Quarterly Supplement .xlsx files from Robinhood investor relations",
+)
 
 if st.sidebar.button("Refresh data from OCC"):
     from scraper import PARSED_CACHE
@@ -197,7 +202,10 @@ st.header("Robinhood Options Market Share")
 st.caption("Denominator: OCC standard equity + ETF + index contracts × 2 (both sides of each trade)")
 
 try:
-    rbhd_monthly = load_robinhood_monthly()
+    if uploaded_rbhd:
+        rbhd_monthly = load_robinhood_from_uploads(uploaded_rbhd)
+    else:
+        rbhd_monthly = load_robinhood_monthly()
 
     # OCC monthly denominator — always standard across all three classes,
     # independent of sidebar class/section/date filters
@@ -265,7 +273,7 @@ try:
             st.dataframe(detail, use_container_width=True, hide_index=True)
 
 except FileNotFoundError:
-    st.info(f"Drop Robinhood monthly or quarterly Excel files into `{RBHD_DIR}` to enable this section.")
+    st.info("Upload Robinhood monthly or quarterly Excel files using the sidebar uploader to enable this section.")
 except Exception as e:
     st.error(f"Could not load Robinhood data: {e}")
 

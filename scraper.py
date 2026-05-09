@@ -235,14 +235,15 @@ _MONTH_NUMS = {
 }
 
 
-def _parse_rbhd_file(path: Path) -> pd.DataFrame:
+def _parse_rbhd_file(path_or_file) -> pd.DataFrame:
     """
     Parse one Robinhood metrics Excel file. Handles two formats:
       - Monthly file:            sheet 'Monthly Metrics',  year row 5, month row 6
       - Quarterly supplement:   sheet 'Monthly KPIs',     year row 2, month row 3
+    Accepts a Path or any file-like object (e.g. st.UploadedFile).
     Returns DataFrame: year_month (Period[M]), rbhd_contracts (float).
     """
-    xl = pd.ExcelFile(path)
+    xl = pd.ExcelFile(path_or_file)
     if "Monthly Metrics" in xl.sheet_names:
         sheet, yr_idx, mo_idx = "Monthly Metrics", 5, 6
     elif "Monthly KPIs" in xl.sheet_names:
@@ -298,6 +299,23 @@ def _parse_rbhd_file(path: Path) -> pd.DataFrame:
                 pass
 
     return pd.DataFrame(records)
+
+
+def load_robinhood_from_uploads(uploaded_files) -> pd.DataFrame:
+    """Parse Robinhood Excel files from Streamlit upload objects (in-memory)."""
+    frames = []
+    for f in uploaded_files:
+        df = _parse_rbhd_file(f)
+        if not df.empty:
+            frames.append(df)
+    if not frames:
+        raise ValueError("No options contract data could be parsed from uploaded files")
+    combined = pd.concat(frames, ignore_index=True)
+    return (
+        combined.drop_duplicates(subset="year_month", keep="last")
+        .sort_values("year_month")
+        .reset_index(drop=True)
+    )
 
 
 def load_robinhood_monthly(folder: Path = None) -> pd.DataFrame:
