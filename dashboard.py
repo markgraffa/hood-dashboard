@@ -119,18 +119,31 @@ k4.metric("Avg Weekly Contracts (period)",
 
 st.divider()
 
-# ── QTD volume ────────────────────────────────────────────────────────────────
+# ── quarterly volume ──────────────────────────────────────────────────────────
 
-st.subheader(f"{qtd_label} — Weekly Contract Volume")
-if weekly_qtd.empty:
-    st.info("No data yet for the current quarter.")
-else:
-    st.caption(f"Total contracts so far this quarter: {weekly_qtd['total_contracts'].sum():,.0f}")
-    fig_qtd = px.bar(weekly_qtd, x="report_date", y="total_contracts",
-                     labels={"report_date": "Week Ending", "total_contracts": "Contracts"},
-                     color_discrete_sequence=["#4C78A8"])
-    fig_qtd.update_layout(margin=dict(t=10, b=0), hovermode="x unified")
-    st.plotly_chart(fig_qtd, use_container_width=True)
+st.subheader("Quarterly Contract Volume")
+_weekly_q = weekly.copy()
+_weekly_q["quarter"] = _weekly_q["report_date"].dt.to_period("Q")
+quarterly = _weekly_q.groupby("quarter", as_index=False)["total_contracts"].sum()
+quarterly["date"] = quarterly["quarter"].dt.to_timestamp()
+_current_q = pd.Period(_today, freq="Q")
+_completed = quarterly[quarterly["quarter"] != _current_q]
+_qtd_row = quarterly[quarterly["quarter"] == _current_q]
+
+fig_q = go.Figure()
+fig_q.add_trace(go.Bar(
+    x=_completed["date"], y=_completed["total_contracts"],
+    name="Completed Quarter", marker_color="#4C78A8",
+))
+if not _qtd_row.empty:
+    fig_q.add_trace(go.Bar(
+        x=_qtd_row["date"], y=_qtd_row["total_contracts"],
+        name=qtd_label, marker_color="#F58518",
+    ))
+    st.caption(f"{qtd_label} total so far: {_qtd_row['total_contracts'].values[0]:,.0f}")
+fig_q.update_layout(margin=dict(t=10, b=0), hovermode="x unified",
+                    yaxis_title="Contracts", xaxis_title="Quarter", barmode="group")
+st.plotly_chart(fig_q, use_container_width=True)
 
 st.divider()
 
