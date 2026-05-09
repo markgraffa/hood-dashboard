@@ -94,6 +94,14 @@ def delta_pct(new, old):
         return f"{(new - old) / old * 100:+.1f}% WoW"
     return ""
 
+# ── QTD helpers ───────────────────────────────────────────────────────────────
+
+_today = pd.Timestamp.today().normalize()
+_q_start_month = (_today.month - 1) // 3 * 3 + 1
+qtd_start = pd.Timestamp(_today.year, _q_start_month, 1)
+qtd_label = f"Q{(_q_start_month - 1) // 3 + 1} {_today.year} QTD"
+weekly_qtd = weekly[weekly["report_date"] >= qtd_start]
+
 # ── KPI cards ─────────────────────────────────────────────────────────────────
 
 k1, k2, k3, k4 = st.columns(4)
@@ -111,15 +119,30 @@ k4.metric("Avg Weekly Contracts (period)",
 
 st.divider()
 
+# ── QTD volume ────────────────────────────────────────────────────────────────
+
+st.subheader(f"{qtd_label} — Weekly Contract Volume")
+if weekly_qtd.empty:
+    st.info("No data yet for the current quarter.")
+else:
+    st.caption(f"Total contracts so far this quarter: {weekly_qtd['total_contracts'].sum():,.0f}")
+    fig_qtd = px.bar(weekly_qtd, x="report_date", y="total_contracts",
+                     labels={"report_date": "Week Ending", "total_contracts": "Contracts"},
+                     color_discrete_sequence=["#4C78A8"])
+    fig_qtd.update_layout(margin=dict(t=10, b=0), hovermode="x unified")
+    st.plotly_chart(fig_qtd, use_container_width=True)
+
+st.divider()
+
 # ── row 1: total volume + calls/puts ─────────────────────────────────────────
 
 col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("Total Weekly Contract Volume")
-    fig = px.area(weekly, x="report_date", y="total_contracts",
-                  labels={"report_date": "Week Ending", "total_contracts": "Contracts"},
-                  color_discrete_sequence=["#4C78A8"])
+    fig = px.bar(weekly, x="report_date", y="total_contracts",
+                 labels={"report_date": "Week Ending", "total_contracts": "Contracts"},
+                 color_discrete_sequence=["#4C78A8"])
     fig.update_layout(margin=dict(t=10, b=0), hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
@@ -163,7 +186,41 @@ with col4:
                        yaxis_title="Ratio", xaxis_title="Week Ending", showlegend=False)
     st.plotly_chart(fig4, use_container_width=True)
 
-# ── row 3: account type breakdown ─────────────────────────────────────────────
+# ── row 3: asset class % mix ─────────────────────────────────────────────────
+
+st.subheader("Volume Mix by Asset Class (%)")
+by_class_pct = (
+    filtered.groupby(["report_date", "report_class"], as_index=False)
+    ["combined_total_contracts"].sum()
+)
+by_class_pct["pct"] = by_class_pct.groupby("report_date")["combined_total_contracts"].transform(
+    lambda x: x / x.sum() * 100
+)
+by_class_pct.columns = ["Week Ending", "Class", "Contracts", "Pct"]
+fig_pct = px.area(by_class_pct, x="Week Ending", y="Pct", color="Class",
+                  groupnorm="percent",
+                  labels={"Pct": "Share (%)", "Week Ending": "Week Ending"},
+                  color_discrete_map={"equity": "#4C78A8", "etf": "#F58518", "index": "#72B7B2"})
+fig_pct.update_layout(margin=dict(t=10, b=0), hovermode="x unified",
+                      yaxis=dict(ticksuffix="%", range=[0, 100]))
+st.plotly_chart(fig_pct, use_container_width=True)
+
+# ── row 4: standard vs flex % mix ────────────────────────────────────────────
+
+st.subheader("Volume Mix by Contract Type (%)")
+by_section_pct = (
+    filtered.groupby(["report_date", "section"], as_index=False)
+    ["combined_total_contracts"].sum()
+)
+fig_sec_pct = px.area(by_section_pct, x="report_date", y="combined_total_contracts", color="section",
+                      groupnorm="percent",
+                      labels={"report_date": "Week Ending", "combined_total_contracts": "Share (%)"},
+                      color_discrete_map={"standard": "#4C78A8", "flex": "#EECA3B"})
+fig_sec_pct.update_layout(margin=dict(t=10, b=0), hovermode="x unified",
+                          yaxis=dict(ticksuffix="%", range=[0, 100]))
+st.plotly_chart(fig_sec_pct, use_container_width=True)
+
+# ── row 6: account type breakdown ─────────────────────────────────────────────
 
 st.subheader("Volume by Account Type (Customer / Firm / Market Maker)")
 acct = weekly[["report_date", "cust_contracts", "firm_contracts", "mm_contracts"]].melt(
@@ -262,6 +319,27 @@ try:
             hovermode="x unified",
             yaxis=dict(ticksuffix="%", rangemode="tozero"),
         )
+
+        # QTD market share — align monthly Robinhood data with weekly OCC data
+        # Only use OCC weeks whose calendar month has Robinhood coverage
+        qtd_period_start = pd.Period(qtd_start, freq="M")
+        qtd_rbhd_qs = rbhd_monthly[rbhd_monthly["year_month"] >= qtd_period_start]
+        if not qtd_rbhd_qs.empty:
+            qtd_occ_qs = occ_std[occ_std["year_month"].isin(qtd_rbhd_qs["year_month"])]
+            if not qtd_occ_qs.empty:
+                qtd_rbhd_sum = qtd_rbhd_qs["rbhd_contracts"].sum()
+                qtd_occ_sum = qtd_occ_qs["combined_total_contracts"].sum()
+                qtd_ms_pct = qtd_rbhd_sum / (qtd_occ_sum * 2) * 100
+                qtd_x = qtd_rbhd_qs["year_month"].max().to_timestamp()
+                fig_ms.add_trace(go.Scatter(
+                    x=[qtd_x], y=[qtd_ms_pct],
+                    mode="markers+text",
+                    marker=dict(color="#FF5700", size=14, symbol="star"),
+                    text=[f"{qtd_label}: {qtd_ms_pct:.2f}%"],
+                    textposition="top center",
+                    name=qtd_label,
+                ))
+
         st.plotly_chart(fig_ms, use_container_width=True)
 
         with st.expander("Monthly detail"):
